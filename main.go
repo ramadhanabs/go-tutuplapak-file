@@ -5,7 +5,8 @@ import (
 	"context"
 	"fmt"
 	"go-tutuplapak-file/config"
-	db "go-tutuplapak-file/db/migrations"
+	"go-tutuplapak-file/db"
+	"go-tutuplapak-file/repository"
 	"go-tutuplapak-file/utils"
 	"log"
 	"net/http"
@@ -37,7 +38,6 @@ func CompressImage(fileBuffer *bytes.Buffer) (*bytes.Buffer, error) {
 	}
 
 	outputBuffer := bytes.NewBuffer(newImg)
-	fmt.Printf("The size of the buffer is %d bytes\n", fileBuffer.Len())
 	return outputBuffer, nil
 }
 
@@ -77,6 +77,8 @@ func main() {
 		log.Println("Database connection closed.")
 	}()
 
+	fileHandler := repository.NewFileRepository(db.DB)
+
 	// Init S3
 	awsCfg, err := awsConfig.LoadDefaultConfig(context.TODO(),
 		awsConfig.WithRegion(cfg.AwsRegion),
@@ -89,24 +91,24 @@ func main() {
 	s3File := File{s3.NewFromConfig(awsCfg), cfg.S3Bucket}
 
 	router.POST("/v1/file", func(c *gin.Context) {
-		auth := c.GetHeader("Authorization")
+		// auth := c.GetHeader("Authorization")
 
-		if auth == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is required"})
-			return
-		}
+		// if auth == "" {
+		// 	c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is required"})
+		// 	return
+		// }
 
-		if !strings.HasPrefix(auth, "Bearer ") {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization format"})
-			return
-		}
+		// if !strings.HasPrefix(auth, "Bearer ") {
+		// 	c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization format"})
+		// 	return
+		// }
 
-		auth = auth[7:]
-		_, err = utils.ValidateJWT(auth)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-			return
-		}
+		// auth = auth[7:]
+		// _, err = utils.ValidateJWT(auth)
+		// if err != nil {
+		// 	c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		// 	return
+		// }
 
 		fileHeader, err := c.FormFile("file")
 		if err != nil {
@@ -171,8 +173,14 @@ func main() {
 			return
 		}
 
+		createdFile, err := fileHandler.Create(originalURI, compressedURI)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Create file failed"})
+			return
+		}
+
 		c.JSON(http.StatusOK, gin.H{
-			"fileId":        "0",
+			"fileId":        createdFile.ID,
 			"fileUri":       originalURI,
 			"compressedUri": compressedURI,
 		})
